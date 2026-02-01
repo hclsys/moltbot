@@ -1,5 +1,6 @@
 import safeRegex from "safe-regex";
 
+const MAX_WARNED_PATTERNS = 1000;
 const warnedPatterns = new Set<string>();
 
 /**
@@ -26,9 +27,11 @@ export function safePatternMatch(
     const re = new RegExp(pattern);
     // Validate regex complexity to prevent ReDoS
     if (!safeRegex(re)) {
-      if (!warnedPatterns.has(pattern)) {
+      if (!warnedPatterns.has(pattern) && warnedPatterns.size < MAX_WARNED_PATTERNS) {
         warnedPatterns.add(pattern);
-        console.warn(`${logPrefix} Rejected potentially unsafe regex pattern: ${pattern}`);
+        console.warn(
+          `${logPrefix} Rejected potentially unsafe regex pattern: ${JSON.stringify(pattern)}`,
+        );
       }
       return false;
     }
