@@ -1699,7 +1699,36 @@ function shouldIncludeBundledPluginRuntimeDeps(params: {
   manifestCache?: BundledPluginRuntimeDepsManifestCache;
 }): boolean {
   if (params.selectedPluginIds) {
-    return params.selectedPluginIds.has(params.pluginId);
+    if (!params.selectedPluginIds.has(params.pluginId)) {
+      return false;
+    }
+    // Even within the pre-selected startup set, skip plugins whose channels
+    // are all explicitly disabled (channels.X.enabled=false), so gateway
+    // startup does not install runtime deps for disabled channel plugins.
+    if (params.config) {
+      const manifest = readBundledPluginRuntimeDepsManifest(params.pluginDir, params.manifestCache);
+      if (manifest.channels.length > 0) {
+        const allChannelsDisabled = manifest.channels.every((channelId) => {
+          const normalizedChannelId = normalizeOptionalLowercaseString(channelId);
+          if (!normalizedChannelId) {
+            return false;
+          }
+          const channelConfig = (params.config!.channels as Record<string, unknown> | undefined)?.[
+            normalizedChannelId
+          ];
+          return (
+            channelConfig !== undefined &&
+            typeof channelConfig === "object" &&
+            !Array.isArray(channelConfig) &&
+            (channelConfig as { enabled?: unknown }).enabled === false
+          );
+        });
+        if (allChannelsDisabled) {
+          return false;
+        }
+      }
+    }
+    return true;
   }
   const scopedToPluginIds = Boolean(params.pluginIds);
   if (params.pluginIds) {

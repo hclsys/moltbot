@@ -1160,6 +1160,32 @@ describe("scanBundledPluginRuntimeDeps config policy", () => {
     expect(result.conflicts).toEqual([]);
   });
 
+  it("skips preselected plugin when its channel is explicitly disabled (#74405)", () => {
+    const result = scanBundledPluginRuntimeDeps({
+      packageRoot: setupPolicyPackageRoot(),
+      selectedPluginIds: ["telegram"],
+      config: {
+        channels: { telegram: { enabled: false, botToken: "stale-token" } },
+      },
+    });
+
+    expect(result.deps).toEqual([]);
+  });
+
+  it("keeps preselected plugin when its channel is enabled alongside other config (#74405)", () => {
+    const result = scanBundledPluginRuntimeDeps({
+      packageRoot: setupPolicyPackageRoot(),
+      selectedPluginIds: ["telegram"],
+      config: {
+        channels: { telegram: { enabled: true, botToken: "live-token" } },
+      },
+    });
+
+    expect(result.deps.map((dep) => `${dep.name}@${dep.version}`)).toEqual([
+      "telegram-runtime@2.0.0",
+    ]);
+  });
+
   it("reads each bundled plugin manifest once per runtime-deps scan", () => {
     const packageRoot = makeTempDir();
     const pluginRoot = writeBundledPluginPackage({
