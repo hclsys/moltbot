@@ -1543,9 +1543,15 @@ export function createExecTool(
       if (elevatedRequested) {
         logInfo(`exec: elevated command ${truncateMiddle(params.command, 120)}`);
       }
+      const normalizedHost = normalizeExecTarget(params.host);
+      if (params.host && normalizedHost === null) {
+        throw new Error(
+          `exec host "${params.host}" is not a recognized target; allowed values: auto, sandbox, gateway, node`,
+        );
+      }
       const target = resolveExecTarget({
         configuredTarget: defaults?.host,
-        requestedTarget: normalizeExecTarget(params.host),
+        requestedTarget: normalizedHost,
         elevatedRequested,
         sandboxAvailable: Boolean(defaults?.sandbox),
       });

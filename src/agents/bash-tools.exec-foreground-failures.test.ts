@@ -27,6 +27,20 @@ describe("exec foreground failures", () => {
     envSnapshot.restore();
   });
 
+  it("rejects immediately when host value is not a recognized exec target (#74426)", async () => {
+    const tool = createExecTool({
+      security: "full",
+      ask: "off",
+    });
+
+    await expect(
+      tool.execute("call-invalid-host", {
+        command: "echo hi",
+        host: "spark-ff13",
+      }),
+    ).rejects.toThrow(/spark-ff13.*not a recognized target/i);
+  });
+
   it("returns a failed text result when the default timeout is exceeded", async () => {
     const tool = createExecTool({
       security: "full",
