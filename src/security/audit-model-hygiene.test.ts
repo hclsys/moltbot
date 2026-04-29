@@ -31,6 +31,35 @@ describe("security audit model hygiene findings", () => {
         },
         expectedAbsentCheckId: "models.weak_tier",
       },
+      {
+        name: "alias resolving to strong model is not flagged (#74455)",
+        cfg: {
+          agents: {
+            defaults: {
+              model: { primary: "gpt-prev", fallbacks: ["gpt-mini"] },
+              models: {
+                "openai-codex/gpt-5.4": { alias: "gpt-prev" },
+                "openai/gpt-5-mini": { alias: "gpt-mini" },
+              },
+            },
+          },
+        },
+        expectedAbsentCheckId: "models.weak_tier",
+      },
+      {
+        name: "alias resolving to weak model is still flagged (#74455)",
+        cfg: {
+          agents: {
+            defaults: {
+              model: { primary: "small-bot" },
+              models: {
+                "anthropic/claude-haiku-4-5": { alias: "small-bot" },
+              },
+            },
+          },
+        },
+        expectedPresent: [{ checkId: "models.weak_tier", severity: "warn" }],
+      },
     ];
 
     for (const testCase of cases) {

@@ -22,6 +22,7 @@ Docs: https://docs.openclaw.ai
 
 ### Fixes
 
+- Security/audit: resolve `agents.defaults.models` aliases before model-tier hygiene checks so configured alias strings like `gpt-prev` are evaluated against the real model they point to (e.g. `openai-codex/gpt-5.4`) instead of the alias name, eliminating false `models.weak_tier` and `models.legacy` warnings for users with model alias configs. Fixes #74455.
 - Exec/host: reject unrecognized `host` values in exec tool calls with a clear error instead of silently falling back to the default target, preventing agents from confabulating host-level facts when they pass a hostname token (e.g. `host: "spark-ff13"`) that does not match `auto`, `sandbox`, `gateway`, or `node`. Fixes #74426.
 - Agents/errors: suppress malformed streaming tool-call JSON fragments before they reach chat surfaces while preserving provider request-validation diagnostics. Fixes #59076; keeps #59080 as duplicate coverage. (#59118) Thanks @singleGanghood.
 - CLI/models: restore provider-filtered `models list --all --provider <id>` rows for providers without manifest/static catalog coverage, including Anthropic and Amazon Bedrock, while keeping the compatibility fallback off expensive availability and resolver paths. Thanks @shakkernerd.

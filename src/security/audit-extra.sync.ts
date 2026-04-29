@@ -61,34 +61,55 @@ function looksLikeEnvRef(value: string): boolean {
 
 type ModelRef = { id: string; source: string };
 
-function addModel(models: ModelRef[], raw: unknown, source: string) {
+function buildAliasMap(cfg: OpenClawConfig): Map<string, string> {
+  const out = new Map<string, string>();
+  const rawModels = cfg.agents?.defaults?.models ?? {};
+  for (const [modelKey, entryRaw] of Object.entries(rawModels)) {
+    const alias = normalizeOptionalString((entryRaw as { alias?: unknown } | undefined)?.alias);
+    if (alias) {
+      out.set(alias.toLowerCase(), modelKey);
+    }
+  }
+  return out;
+}
+
+function addModel(
+  models: ModelRef[],
+  raw: unknown,
+  source: string,
+  aliasMap?: Map<string, string>,
+) {
   if (typeof raw !== "string") {
     return;
   }
-  const id = raw.trim();
-  if (!id) {
+  const trimmed = raw.trim();
+  if (!trimmed) {
     return;
   }
+  const id = aliasMap?.get(trimmed.toLowerCase()) ?? trimmed;
   models.push({ id, source });
 }
 
 function collectModels(cfg: OpenClawConfig): ModelRef[] {
   const out: ModelRef[] = [];
+  const aliasMap = buildAliasMap(cfg);
   addModel(
     out,
     resolveAgentModelPrimaryValue(cfg.agents?.defaults?.model),
     "agents.defaults.model.primary",
+    aliasMap,
   );
   for (const fallback of resolveAgentModelFallbackValues(cfg.agents?.defaults?.model)) {
-    addModel(out, fallback, "agents.defaults.model.fallbacks");
+    addModel(out, fallback, "agents.defaults.model.fallbacks", aliasMap);
   }
   addModel(
     out,
     resolveAgentModelPrimaryValue(cfg.agents?.defaults?.imageModel),
     "agents.defaults.imageModel.primary",
+    aliasMap,
   );
   for (const fallback of resolveAgentModelFallbackValues(cfg.agents?.defaults?.imageModel)) {
-    addModel(out, fallback, "agents.defaults.imageModel.fallbacks");
+    addModel(out, fallback, "agents.defaults.imageModel.fallbacks", aliasMap);
   }
 
   const list = Array.isArray(cfg.agents?.list) ? cfg.agents?.list : [];
@@ -100,13 +121,18 @@ function collectModels(cfg: OpenClawConfig): ModelRef[] {
       typeof (agent as { id?: unknown }).id === "string" ? (agent as { id: string }).id : "";
     const model = (agent as { model?: unknown }).model;
     if (typeof model === "string") {
-      addModel(out, model, `agents.list.${id}.model`);
+      addModel(out, model, `agents.list.${id}.model`, aliasMap);
     } else if (model && typeof model === "object") {
-      addModel(out, (model as { primary?: unknown }).primary, `agents.list.${id}.model.primary`);
+      addModel(
+        out,
+        (model as { primary?: unknown }).primary,
+        `agents.list.${id}.model.primary`,
+        aliasMap,
+      );
       const fallbacks = (model as { fallbacks?: unknown }).fallbacks;
       if (Array.isArray(fallbacks)) {
         for (const fallback of fallbacks) {
-          addModel(out, fallback, `agents.list.${id}.model.fallbacks`);
+          addModel(out, fallback, `agents.list.${id}.model.fallbacks`, aliasMap);
         }
       }
     }
