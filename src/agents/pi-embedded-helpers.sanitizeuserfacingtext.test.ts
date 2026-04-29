@@ -20,6 +20,18 @@ describe("sanitizeUserFacingText", () => {
     expect(sanitizeUserFacingText("Hi <final>there</final>!")).toBe("Hi there!");
   });
 
+  it("strips <relevant-memories> scaffolding from outbound text (#74364)", () => {
+    const withMemories =
+      "<relevant-memories>\n- fact one\n- fact two\n</relevant-memories>\nSure, here is the answer.";
+    expect(sanitizeUserFacingText(withMemories)).toBe("Sure, here is the answer.");
+  });
+
+  it("preserves <relevant-memories> inside code fences (#74364)", () => {
+    const withFencedMemories =
+      "Here is an example:\n```\n<relevant-memories>example</relevant-memories>\n```\nDone.";
+    expect(sanitizeUserFacingText(withFencedMemories)).toBe(withFencedMemories.trim());
+  });
+
   it.each(["202 results found", "400 days left"])(
     "does not clobber normal numeric prefix: %s",
     (text) => {
