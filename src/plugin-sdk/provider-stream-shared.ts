@@ -255,7 +255,15 @@ function stripDeepSeekV4ReasoningContent(payload: Record<string, unknown>): void
     if (!message || typeof message !== "object") {
       continue;
     }
-    delete (message as Record<string, unknown>).reasoning_content;
+    const record = message as Record<string, unknown>;
+    if ("reasoning_content" in record && record.role === "assistant") {
+      // DeepSeek requires reasoning_content to be echoed back even when thinking is
+      // disabled — if we delete a field that appeared in the response, the next request
+      // gets a 400 "reasoning_content must be passed back". Nullify to "" instead.
+      record.reasoning_content = "";
+    } else {
+      delete record.reasoning_content;
+    }
   }
 }
 

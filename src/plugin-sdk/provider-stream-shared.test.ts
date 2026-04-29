@@ -134,6 +134,35 @@ describe("createDeepSeekV4OpenAICompatibleThinkingWrapper", () => {
     expect(payload.messages[3]).toHaveProperty("reasoning_content", "");
     expect(payload.messages[4]).toHaveProperty("reasoning_content", "native reasoning");
   });
+
+  it("nullifies reasoning_content to empty string on assistant messages when thinking is disabled (#74374)", () => {
+    const payload = {
+      messages: [
+        { role: "user", content: "hello" },
+        { role: "assistant", content: "hi", reasoning_content: "secret reasoning" },
+        { role: "user", content: "bye" },
+        { role: "assistant", content: "ok" },
+      ],
+    };
+    const baseStreamFn: StreamFn = (_model, _context, options) => {
+      options?.onPayload?.(payload as never, _model as never);
+      return {} as ReturnType<StreamFn>;
+    };
+
+    const wrapped = createDeepSeekV4OpenAICompatibleThinkingWrapper({
+      baseStreamFn,
+      thinkingLevel: "off",
+      shouldPatchModel: () => true,
+    });
+    void wrapped?.({} as never, {} as never, {});
+
+    expect(payload.messages[0]).not.toHaveProperty("reasoning_content");
+    // assistant with reasoning_content from prior response: must be echoed as "" not deleted
+    expect(payload.messages[1]).toHaveProperty("reasoning_content", "");
+    expect(payload.messages[2]).not.toHaveProperty("reasoning_content");
+    // assistant without reasoning_content: stays absent
+    expect(payload.messages[3]).not.toHaveProperty("reasoning_content");
+  });
 });
 
 describe("buildCopilotDynamicHeaders", () => {
