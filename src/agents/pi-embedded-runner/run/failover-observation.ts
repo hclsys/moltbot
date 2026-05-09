@@ -8,7 +8,7 @@ import type { FailoverReason } from "../../pi-embedded-helpers.js";
 import { log } from "../logger.js";
 
 export type FailoverDecisionLoggerInput = {
-  stage: "prompt" | "assistant";
+  stage: "prompt" | "assistant" | "retry_limit";
   decision: "rotate_profile" | "fallback_model" | "surface_error";
   runId?: string;
   rawError?: string;

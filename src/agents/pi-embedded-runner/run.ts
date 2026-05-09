@@ -1062,6 +1062,21 @@ export async function runEmbeddedPiAgent(
               fallbackConfigured,
               failoverReason: lastRetryFailoverReason,
             });
+            if (retryLimitDecision.action === "fallback_model") {
+              createFailoverDecisionLogger({
+                stage: "retry_limit",
+                runId: params.runId,
+                rawError: message,
+                failoverReason: lastRetryFailoverReason,
+                provider,
+                model: modelId,
+                sourceProvider: provider,
+                sourceModel: modelId,
+                profileId: lastProfileId,
+                fallbackConfigured,
+                aborted: false,
+              })("fallback_model");
+            }
             return handleRetryLimitExhaustion({
               message,
               decision: retryLimitDecision,
@@ -1345,6 +1360,21 @@ export async function runEmbeddedPiAgent(
               fallbackConfigured,
               failoverReason: lastRetryFailoverReason,
             });
+            if (breakerDecision.action === "fallback_model") {
+              createFailoverDecisionLogger({
+                stage: "retry_limit",
+                runId: params.runId,
+                rawError: breakerMessage,
+                failoverReason: lastRetryFailoverReason,
+                provider,
+                model: modelId,
+                sourceProvider: provider,
+                sourceModel: modelId,
+                profileId: lastProfileId,
+                fallbackConfigured,
+                aborted: false,
+              })("fallback_model");
+            }
             return handleRetryLimitExhaustion({
               message: breakerMessage,
               decision: breakerDecision,
