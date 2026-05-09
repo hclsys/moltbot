@@ -1,3 +1,4 @@
+import { createSign } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import os from "node:os";
@@ -8,6 +9,13 @@ type GoogleAuthorizedUserCredentials = {
   client_id?: string;
   client_secret?: string;
   refresh_token?: string;
+};
+
+type GoogleServiceAccountCredentials = {
+  type: "service_account";
+  client_email: string;
+  private_key: string;
+  token_uri?: string;
 };
 
 type GoogleVertexAuthorizedUserToken = {
@@ -85,6 +93,112 @@ async function readGoogleAuthorizedUserCredentials(
   };
 }
 
+async function readGoogleServiceAccountCredentials(
+  credentialsPath: string,
+): Promise<GoogleServiceAccountCredentials | undefined> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await readFile(credentialsPath, "utf8")) as unknown;
+  } catch {
+    return undefined;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return undefined;
+  }
+  const record = parsed as Record<string, unknown>;
+  if (record.type !== "service_account") {
+    return undefined;
+  }
+  const client_email = normalizeOptionalString(record.client_email);
+  const private_key = normalizeOptionalString(record.private_key);
+  if (!client_email || !private_key) {
+    return undefined;
+  }
+  return {
+    type: "service_account",
+    client_email,
+    private_key,
+    token_uri: normalizeOptionalString(record.token_uri) ?? GOOGLE_OAUTH_TOKEN_URL,
+  };
+}
+
+function createServiceAccountJwt(credentials: GoogleServiceAccountCredentials): string {
+  const now = Math.floor(Date.now() / 1000);
+  const header = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url");
+  const payload = Buffer.from(
+    JSON.stringify({
+      iss: credentials.client_email,
+      scope: "https://www.googleapis.com/auth/cloud-platform",
+      aud: credentials.token_uri ?? GOOGLE_OAUTH_TOKEN_URL,
+      iat: now,
+      exp: now + 3600,
+    }),
+  ).toString("base64url");
+  const unsigned = `${header}.${payload}`;
+  const sign = createSign("RSA-SHA256");
+  sign.update(unsigned);
+  const signature = sign.sign(credentials.private_key, "base64url");
+  return `${unsigned}.${signature}`;
+}
+
+let cachedGoogleVertexServiceAccountToken:
+  | { token: string; expiresAtMs: number; clientEmail: string }
+  | undefined;
+
+export function resetGoogleVertexServiceAccountTokenCacheForTest(): void {
+  cachedGoogleVertexServiceAccountToken = undefined;
+}
+
+async function refreshGoogleVertexServiceAccountAccessToken(params: {
+  credentials: GoogleServiceAccountCredentials;
+  fetchImpl?: typeof fetch;
+}): Promise<string> {
+  const cached = cachedGoogleVertexServiceAccountToken;
+  if (
+    cached?.clientEmail === params.credentials.client_email &&
+    cached.expiresAtMs - Date.now() > 60_000
+  ) {
+    return cached.token;
+  }
+  const jwt = createServiceAccountJwt(params.credentials);
+  const tokenUri = params.credentials.token_uri ?? GOOGLE_OAUTH_TOKEN_URL;
+  const body = new URLSearchParams({
+    grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+    assertion: jwt,
+  });
+  const response = await (params.fetchImpl ?? fetch)(tokenUri, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+  const payload = (await response.json().catch(() => undefined)) as
+    | { access_token?: unknown; expires_in?: unknown; error?: unknown; error_description?: unknown }
+    | undefined;
+  if (!response.ok) {
+    const description = normalizeOptionalString(payload?.error_description);
+    const code = normalizeOptionalString(payload?.error);
+    throw new Error(
+      `Google Vertex service_account ADC token exchange failed: ${response.status}${code ? ` ${code}` : ""}${description ? ` (${description})` : ""}`,
+    );
+  }
+  const token = normalizeOptionalString(payload?.access_token);
+  if (!token) {
+    throw new Error(
+      "Google Vertex service_account ADC token exchange did not return an access_token.",
+    );
+  }
+  const expiresInSeconds =
+    typeof payload?.expires_in === "number" && Number.isFinite(payload.expires_in)
+      ? payload.expires_in
+      : 3600;
+  cachedGoogleVertexServiceAccountToken = {
+    token,
+    expiresAtMs: Date.now() + Math.max(1, expiresInSeconds) * 1000,
+    clientEmail: params.credentials.client_email,
+  };
+  return token;
+}
+
 export function hasGoogleVertexAuthorizedUserAdcSync(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
@@ -94,12 +208,11 @@ export function hasGoogleVertexAuthorizedUserAdcSync(
   }
   try {
     const parsed = JSON.parse(readFileSync(credentialsPath, "utf8")) as unknown;
-    return (
-      Boolean(parsed) &&
-      typeof parsed === "object" &&
-      !Array.isArray(parsed) &&
-      (parsed as { type?: unknown }).type === "authorized_user"
-    );
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return false;
+    }
+    const credType = (parsed as { type?: unknown }).type;
+    return credType === "authorized_user" || credType === "service_account";
   } catch {
     return false;
   }
@@ -175,13 +288,23 @@ export async function resolveGoogleVertexAuthorizedUserHeaders(
       "Google Vertex ADC credentials not found. Set GOOGLE_APPLICATION_CREDENTIALS or run gcloud auth application-default login.",
     );
   }
-  const credentials = await readGoogleAuthorizedUserCredentials(credentialsPath);
-  if (!credentials) {
-    throw new Error("Google Vertex ADC fallback requires an authorized_user credentials file.");
+  const serviceAccountCredentials = await readGoogleServiceAccountCredentials(credentialsPath);
+  if (serviceAccountCredentials) {
+    const token = await refreshGoogleVertexServiceAccountAccessToken({
+      credentials: serviceAccountCredentials,
+      fetchImpl,
+    });
+    return { Authorization: `Bearer ${token}` };
+  }
+  const authorizedUserCredentials = await readGoogleAuthorizedUserCredentials(credentialsPath);
+  if (!authorizedUserCredentials) {
+    throw new Error(
+      "Google Vertex ADC credentials must be authorized_user or service_account type.",
+    );
   }
   const token = await refreshGoogleVertexAuthorizedUserAccessToken({
     credentialsPath,
-    credentials,
+    credentials: authorizedUserCredentials,
     fetchImpl,
   });
   return { Authorization: `Bearer ${token}` };

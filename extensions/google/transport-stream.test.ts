@@ -20,6 +20,7 @@ let createGoogleGenerativeAiTransportStreamFn: typeof import("./transport-stream
 let createGoogleVertexTransportStreamFn: typeof import("./transport-stream.js").createGoogleVertexTransportStreamFn;
 let hasGoogleVertexAuthorizedUserAdcSync: typeof import("./vertex-adc.js").hasGoogleVertexAuthorizedUserAdcSync;
 let resetGoogleVertexAuthorizedUserTokenCacheForTest: typeof import("./vertex-adc.js").resetGoogleVertexAuthorizedUserTokenCacheForTest;
+let resetGoogleVertexServiceAccountTokenCacheForTest: typeof import("./vertex-adc.js").resetGoogleVertexServiceAccountTokenCacheForTest;
 
 const MODEL_PROVIDER_REQUEST_TRANSPORT_SYMBOL = Symbol.for(
   "openclaw.modelProviderRequestTransport",
@@ -123,8 +124,11 @@ describe("google transport stream", () => {
       createGoogleGenerativeAiTransportStreamFn,
       createGoogleVertexTransportStreamFn,
     } = await import("./transport-stream.js"));
-    ({ hasGoogleVertexAuthorizedUserAdcSync, resetGoogleVertexAuthorizedUserTokenCacheForTest } =
-      await import("./vertex-adc.js"));
+    ({
+      hasGoogleVertexAuthorizedUserAdcSync,
+      resetGoogleVertexAuthorizedUserTokenCacheForTest,
+      resetGoogleVertexServiceAccountTokenCacheForTest,
+    } = await import("./vertex-adc.js"));
   });
 
   beforeEach(() => {
@@ -132,6 +136,7 @@ describe("google transport stream", () => {
     guardedFetchMock.mockReset();
     buildGuardedModelFetchMock.mockReturnValue(guardedFetchMock);
     resetGoogleVertexAuthorizedUserTokenCacheForTest();
+    resetGoogleVertexServiceAccountTokenCacheForTest();
   });
 
   afterEach(() => {
@@ -586,6 +591,77 @@ describe("google transport stream", () => {
       expect.objectContaining({
         headers: expect.objectContaining({
           Authorization: "Bearer ya29.appdata-token",
+        }),
+      }),
+    );
+  });
+
+  it("uses service_account ADC to obtain a bearer token via JWT bearer grant", async () => {
+    const { generateKeyPairSync } = await import("node:crypto");
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const privateKeyPem = privateKey.export({ type: "pkcs8", format: "pem" }) as string;
+
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "openclaw-google-vertex-sa-adc-"));
+    const credentialsPath = path.join(tempDir, "application_default_credentials.json");
+    await writeFile(
+      credentialsPath,
+      JSON.stringify({
+        type: "service_account",
+        client_email: "test-sa@test-project.iam.gserviceaccount.com",
+        private_key: privateKeyPem,
+        token_uri: "https://oauth2.googleapis.com/token",
+      }),
+      "utf8",
+    );
+
+    vi.stubEnv("GOOGLE_APPLICATION_CREDENTIALS", credentialsPath);
+    vi.stubEnv("GOOGLE_CLOUD_PROJECT", "sa-test-project");
+    vi.stubEnv("GOOGLE_CLOUD_LOCATION", "global");
+
+    expect(hasGoogleVertexAuthorizedUserAdcSync()).toBe(true);
+
+    const tokenFetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ access_token: "ya29.sa-token", expires_in: 3600 }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    guardedFetchMock.mockResolvedValueOnce(
+      buildSseResponse([
+        {
+          candidates: [{ content: { parts: [{ text: "ok" }] }, finishReason: "STOP" }],
+        },
+      ]),
+    );
+
+    const model = buildGoogleVertexModel();
+    const streamFn = createGoogleVertexTransportStreamFn();
+    const stream = await Promise.resolve(
+      streamFn(
+        model,
+        {
+          messages: [{ role: "user", content: "hello", timestamp: 0 }],
+        } as Parameters<typeof streamFn>[1],
+        {
+          apiKey: "gcp-vertex-credentials",
+          fetch: tokenFetchMock,
+        } as Parameters<typeof streamFn>[2],
+      ),
+    );
+    await stream.result();
+
+    expect(tokenFetchMock).toHaveBeenCalledWith(
+      "https://oauth2.googleapis.com/token",
+      expect.objectContaining({ method: "POST" }),
+    );
+    const tokenRequestBody = tokenFetchMock.mock.calls[0]?.[1]?.body as URLSearchParams | undefined;
+    expect(tokenRequestBody?.get("grant_type")).toBe("urn:ietf:params:oauth:grant-type:jwt-bearer");
+    expect(tokenRequestBody?.get("assertion")).toBeTruthy();
+    expect(guardedFetchMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer ya29.sa-token",
         }),
       }),
     );
