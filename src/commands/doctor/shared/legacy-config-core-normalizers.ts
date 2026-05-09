@@ -374,15 +374,21 @@ function isModelPrimaryOwnedByExplicitCliRuntime(
   rawModel: unknown,
   rawAgentRuntime: unknown,
 ): boolean {
-  if (!isRecord(rawAgentRuntime)) return false;
+  if (!isRecord(rawAgentRuntime)) {
+    return false;
+  }
   const runtimeId = normalizeOptionalLowercaseString(rawAgentRuntime.id);
-  if (!runtimeId || !isCliRuntimeAlias(runtimeId)) return false;
+  if (!runtimeId || !isCliRuntimeAlias(runtimeId)) {
+    return false;
+  }
   const primary = isRecord(rawModel)
     ? rawModel.primary
     : typeof rawModel === "string"
       ? rawModel
       : undefined;
-  if (typeof primary !== "string") return false;
+  if (typeof primary !== "string") {
+    return false;
+  }
   return primary.startsWith(`${runtimeId}/`);
 }
 
