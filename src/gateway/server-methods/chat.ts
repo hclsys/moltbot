@@ -852,6 +852,7 @@ function buildChatSendTranscriptMessage(params: {
   message: string;
   savedImages: SavedMedia[];
   timestamp: number;
+  idempotencyKey?: string;
 }) {
   const mediaFields = resolveChatSendTranscriptMediaFields(params.savedImages);
   return {
@@ -859,6 +860,7 @@ function buildChatSendTranscriptMessage(params: {
     content: params.message,
     timestamp: params.timestamp,
     ...mediaFields,
+    ...(params.idempotencyKey ? { __openclaw: { idempotencyKey: params.idempotencyKey } } : {}),
   };
 }
 
@@ -2339,6 +2341,7 @@ export const chatHandlers: GatewayRequestHandlers = {
                   message: parsedMessage,
                   savedImages: persistedImages,
                   timestamp: now,
+                  idempotencyKey: clientRunId,
                 }),
               });
             },

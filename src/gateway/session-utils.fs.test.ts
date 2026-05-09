@@ -612,6 +612,27 @@ describe("readSessionMessages", () => {
     ]);
   });
 
+  test("surfaces idempotencyKey from user message into __openclaw", () => {
+    const sessionId = "test-session-idempotency-key";
+    writeTranscript(tmpDir, sessionId, [
+      { type: "session", version: 1, id: sessionId },
+      { message: { role: "user", content: "hello", idempotencyKey: "run-abc-123" } },
+      { message: { role: "assistant", content: "hi" } },
+    ]);
+
+    const out = readSessionMessages(sessionId, storePath);
+
+    expect(out[0]).toMatchObject({
+      role: "user",
+      content: "hello",
+      __openclaw: expect.objectContaining({ idempotencyKey: "run-abc-123", seq: 1 }),
+    });
+    expect(out[1]).toMatchObject({
+      role: "assistant",
+      __openclaw: expect.not.objectContaining({ idempotencyKey: expect.anything() }),
+    });
+  });
+
   test("bounds recent-message reads for large append-only transcripts", () => {
     const sessionId = "test-session-recent-large";
     const transcriptPath = path.join(tmpDir, `${sessionId}.jsonl`);

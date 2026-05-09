@@ -717,9 +717,12 @@ function parsedSessionEntryToMessage(parsed: unknown, seq: number): unknown {
   }
   const entry = parsed as Record<string, unknown>;
   if (entry.message) {
+    const msg = entry.message as Record<string, unknown>;
+    const idempotencyKey = typeof msg.idempotencyKey === "string" ? msg.idempotencyKey : undefined;
     return attachOpenClawTranscriptMeta(entry.message, {
       ...(typeof entry.id === "string" ? { id: entry.id } : {}),
       seq,
+      ...(idempotencyKey ? { idempotencyKey } : {}),
     });
   }
 
