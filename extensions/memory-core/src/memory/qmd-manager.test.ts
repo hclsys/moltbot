@@ -2562,6 +2562,51 @@ describe("QmdMemoryManager", () => {
     await manager.close();
   });
 
+  it("does not pass qmd-scoped XDG paths to mcporter spawns", async () => {
+    cfg = {
+      ...cfg,
+      memory: {
+        backend: "qmd",
+        qmd: {
+          includeDefaultMemory: false,
+          update: { interval: "0s", debounceMs: 60_000, onBoot: false },
+          paths: [{ path: workspaceDir, pattern: "**/*.md", name: "workspace" }],
+          mcporter: { enabled: true, serverName: "qmd", startDaemon: false },
+        },
+      },
+    } as OpenClawConfig;
+
+    const spawnEnvCaptures: (NodeJS.ProcessEnv | undefined)[] = [];
+
+    spawnMock.mockImplementation(
+      (cmd: string, args: string[], opts: { env?: NodeJS.ProcessEnv }) => {
+        const child = createMockChild({ autoClose: false });
+        if (isMcporterCommand(cmd)) {
+          spawnEnvCaptures.push(opts?.env);
+          emitAndClose(child, "stdout", JSON.stringify({ results: [] }));
+          return child;
+        }
+        emitAndClose(child, "stdout", "[]");
+        return child;
+      },
+    );
+
+    const { manager } = await createManager();
+    await manager.search("hello", { sessionKey: "agent:main:slack:dm:u123" });
+    await manager.close();
+
+    expect(spawnEnvCaptures.length).toBeGreaterThan(0);
+    const normalizePath = (value?: string) => value?.replace(/\\/g, "/");
+    for (const env of spawnEnvCaptures) {
+      // mcporter must NOT get the qmd-agent-scoped XDG paths — mcporter 0.10+
+      // uses XDG_CONFIG_HOME to locate its own config and would otherwise look
+      // in the wrong directory (the per-agent qmd xdg-config dir).
+      expect(normalizePath(env?.XDG_CONFIG_HOME)).not.toContain("/qmd/xdg-config");
+      expect(normalizePath(env?.XDG_CACHE_HOME)).not.toContain("/qmd/xdg-cache");
+      expect(env).not.toHaveProperty("QMD_CONFIG_DIR");
+    }
+  });
+
   it("uses QMD 1.1+ query tool with searches array via mcporter", async () => {
     cfg = {
       ...cfg,
@@ -3256,7 +3301,7 @@ describe("QmdMemoryManager", () => {
     }
   });
 
-  it("passes manager-scoped XDG env to mcporter commands", async () => {
+  it("passes manager-scoped XDG env to qmd but not mcporter commands", async () => {
     cfg = {
       ...cfg,
       memory: {
@@ -3289,11 +3334,15 @@ describe("QmdMemoryManager", () => {
     const searchCall = requireValue(mcporterCall, "mcporter search call missing");
     const spawnOpts = searchCall[2] as { env?: NodeJS.ProcessEnv } | undefined;
     const normalizePath = (value?: string) => value?.replace(/\\/g, "/");
-    expect(normalizePath(spawnOpts?.env?.XDG_CONFIG_HOME)).toContain("/agents/main/qmd/xdg-config");
-    expect(normalizePath(spawnOpts?.env?.QMD_CONFIG_DIR)).toContain(
-      "/agents/main/qmd/xdg-config/qmd",
+    // mcporter must NOT get qmd-scoped XDG paths (mcporter 0.10+ uses XDG_CONFIG_HOME
+    // to locate its own config, which would point at the wrong directory)
+    expect(normalizePath(spawnOpts?.env?.XDG_CONFIG_HOME)).not.toContain(
+      "/agents/main/qmd/xdg-config",
     );
-    expect(normalizePath(spawnOpts?.env?.XDG_CACHE_HOME)).toContain("/agents/main/qmd/xdg-cache");
+    expect(spawnOpts?.env).not.toHaveProperty("QMD_CONFIG_DIR");
+    expect(normalizePath(spawnOpts?.env?.XDG_CACHE_HOME)).not.toContain(
+      "/agents/main/qmd/xdg-cache",
+    );
     expect(spawnOpts?.env?.PATH?.split(path.delimiter)).toContain(path.dirname(process.execPath));
 
     await manager.close();
