@@ -787,19 +787,26 @@ async function runGatewayCommand(opts: GatewayRunOpts) {
   gatewayLog.info("starting...");
   startupTrace.mark("cli.gateway-loop");
   const healthHost = await resolveGatewayBindHost(bind, cfg.gateway?.customBindHost);
+  // startupConfigSnapshotRead is only valid for the first boot — on in-process
+  // restarts the config may have changed since startup, so pass it once and
+  // let subsequent starts re-read from disk. (#79947)
+  let snapshotReadForNextStart = startupConfigSnapshotRead;
   const startLoop = async () =>
     await runGatewayLoop({
       runtime: defaultRuntime,
       lockPort: port,
       healthHost,
-      start: async ({ startupStartedAt } = {}) =>
-        await startGatewayServer(port, {
+      start: async ({ startupStartedAt } = {}) => {
+        const snapshotRead = snapshotReadForNextStart;
+        snapshotReadForNextStart = undefined;
+        return await startGatewayServer(port, {
           bind,
           auth: authOverride,
           tailscale: tailscaleOverride,
           startupStartedAt,
-          ...(startupConfigSnapshotRead ? { startupConfigSnapshotRead } : {}),
-        }),
+          ...(snapshotRead ? { startupConfigSnapshotRead: snapshotRead } : {}),
+        });
+      },
     });
 
   const { detectRespawnSupervisor } = await import("../../infra/supervisor-markers.js");

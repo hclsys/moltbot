@@ -522,4 +522,28 @@ describe("gateway run option collisions", () => {
     );
     expect(runtimeErrors[0]).toContain("Use either --passw***d or --password-file.");
   });
+
+  it("does not pass startupConfigSnapshotRead to startGatewayServer on in-process restart", async () => {
+    // Simulate an in-process restart: runGatewayLoop calls start() twice.
+    runGatewayLoop.mockImplementationOnce(async ({ start }: { start: () => Promise<unknown> }) => {
+      await start(); // first boot
+      await start(); // in-process restart
+    });
+
+    await runGatewayCli(["gateway", "run", "--allow-unconfigured"]);
+
+    expect(startGatewayServer).toHaveBeenCalledTimes(2);
+    // First call: snapshot forwarded so config.snapshot.read is skipped.
+    expect(startGatewayServer).toHaveBeenNthCalledWith(
+      1,
+      18789,
+      expect.objectContaining({ startupConfigSnapshotRead: expect.anything() }),
+    );
+    // Second call (in-process restart): no stale snapshot; re-reads from disk.
+    expect(startGatewayServer).toHaveBeenNthCalledWith(
+      2,
+      18789,
+      expect.not.objectContaining({ startupConfigSnapshotRead: expect.anything() }),
+    );
+  });
 });
