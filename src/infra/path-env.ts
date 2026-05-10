@@ -113,6 +113,13 @@ function candidateBinDirs(opts: EnsureOpenClawPathOpts): { prepend: string[]; ap
     append.push(process.env.XDG_BIN_HOME);
   }
   append.push(path.join(homeDir, ".local", "bin"));
+  // npm global prefix: respect explicit config, fall back to conventional ~/.npm-global.
+  const npmPrefix = process.env.NPM_CONFIG_PREFIX ?? process.env.npm_config_prefix;
+  if (npmPrefix) {
+    append.push(path.join(npmPrefix, "bin"));
+  } else {
+    append.push(path.join(homeDir, ".npm-global", "bin"));
+  }
   append.push(path.join(homeDir, ".local", "share", "pnpm"));
   append.push(path.join(homeDir, ".bun", "bin"));
   append.push(path.join(homeDir, ".yarn", "bin"));

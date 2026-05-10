@@ -53,6 +53,8 @@ describe("ensureOpenClawCliOnPath", () => {
     "HOMEBREW_PREFIX",
     "HOMEBREW_BREW_FILE",
     "XDG_BIN_HOME",
+    "NPM_CONFIG_PREFIX",
+    "npm_config_prefix",
   ] as const;
   let envSnapshot: Record<(typeof envKeys)[number], string | undefined>;
 
@@ -105,6 +107,8 @@ describe("ensureOpenClawCliOnPath", () => {
     delete process.env.HOMEBREW_PREFIX;
     delete process.env.HOMEBREW_BREW_FILE;
     delete process.env.XDG_BIN_HOME;
+    delete process.env.NPM_CONFIG_PREFIX;
+    delete process.env.npm_config_prefix;
   }
 
   function expectPathsAfter(parts: string[], anchor: string, expectedPaths: string[]) {
@@ -344,6 +348,42 @@ describe("ensureOpenClawCliOnPath", () => {
     const { params, expectedPaths, anchor } = setup();
     const updated = bootstrapPath(params);
     expectPathsAfter(updated, anchor, expectedPaths);
+  });
+
+  it("appends NPM_CONFIG_PREFIX/bin when env is set", () => {
+    const { tmp, appCli } = setupAppCliRoot("case-npm-prefix-env");
+    const npmPrefix = path.join(tmp, "npm-global");
+    const npmBin = path.join(npmPrefix, "bin");
+    setDir(npmPrefix);
+    setDir(npmBin);
+
+    resetBootstrapEnv("/usr/bin:/bin");
+    process.env.NPM_CONFIG_PREFIX = npmPrefix;
+
+    const updated = bootstrapPath({
+      execPath: appCli,
+      cwd: tmp,
+      homeDir: tmp,
+      platform: "linux",
+    });
+    expectPathsAfter(updated, "/usr/bin", [npmBin]);
+  });
+
+  it("appends ~/.npm-global/bin as fallback when NPM_CONFIG_PREFIX is unset", () => {
+    const { tmp, appCli } = setupAppCliRoot("case-npm-global-fallback");
+    const npmGlobalBin = path.join(tmp, ".npm-global", "bin");
+    setDir(path.join(tmp, ".npm-global"));
+    setDir(npmGlobalBin);
+
+    resetBootstrapEnv("/usr/bin:/bin");
+
+    const updated = bootstrapPath({
+      execPath: appCli,
+      cwd: tmp,
+      homeDir: tmp,
+      platform: "darwin",
+    });
+    expectPathsAfter(updated, "/usr/bin", [npmGlobalBin]);
   });
 
   it("does not append HOMEBREW_PREFIX from process env", () => {
