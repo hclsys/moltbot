@@ -156,12 +156,16 @@ export abstract class MemoryManagerEmbeddingOps extends MemoryManagerSyncOps {
     }
 
     const missingChunks = missing.map((m) => m.chunk);
-    const batches = buildMemoryEmbeddingBatches(missingChunks, EMBEDDING_BATCH_MAX_TOKENS);
-    const toCache: Array<{ hash: string; embedding: number[] }> = [];
     const provider = this.provider;
     if (!provider) {
       throw new Error("Cannot embed batch in FTS-only mode (no embedding provider)");
     }
+    const batchMaxTokens =
+      typeof provider.maxInputTokens === "number" && provider.maxInputTokens > 0
+        ? Math.min(EMBEDDING_BATCH_MAX_TOKENS, provider.maxInputTokens)
+        : EMBEDDING_BATCH_MAX_TOKENS;
+    const batches = buildMemoryEmbeddingBatches(missingChunks, batchMaxTokens);
+    const toCache: Array<{ hash: string; embedding: number[] }> = [];
     let cursor = 0;
     for (const batch of batches) {
       const inputs = buildTextEmbeddingInputs(batch);
