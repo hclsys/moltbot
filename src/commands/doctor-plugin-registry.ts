@@ -10,6 +10,10 @@ import {
   type InstalledPluginIndexRecordStoreOptions,
 } from "../plugins/installed-plugin-index-records.js";
 import { loadInstalledPluginIndex } from "../plugins/installed-plugin-index.js";
+import {
+  auditOpenClawPeerLinksInManagedNpmRoot,
+  relinkOpenClawPeerDependenciesInManagedNpmRoot,
+} from "../plugins/plugin-peer-link.js";
 import { refreshPluginRegistry } from "../plugins/plugin-registry.js";
 import { note } from "../terminal/note.js";
 import { shortenHomePath } from "../utils.js";
@@ -258,6 +262,39 @@ export async function maybeRepairPluginRegistryState(
     ...params,
     config: params.config,
   };
+
+  const npmRoot = params.stateDir
+    ? path.join(params.stateDir, "npm")
+    : resolveDefaultPluginNpmDir(params.env);
+  const peerAudit = await auditOpenClawPeerLinksInManagedNpmRoot(npmRoot);
+  if (peerAudit.entries.length > 0) {
+    if (params.prompter.shouldRepair) {
+      await relinkOpenClawPeerDependenciesInManagedNpmRoot({
+        npmRoot,
+        logger: {
+          info: (msg) => note(msg, "Plugin peer links"),
+          warn: (msg) => note(msg, "Plugin peer links"),
+        },
+      });
+      note(
+        `Repaired ${peerAudit.entries.length} npm plugin openclaw peer link(s).`,
+        "Plugin peer links",
+      );
+    } else {
+      note(
+        [
+          `${peerAudit.entries.length} npm plugin(s) have missing or stale openclaw peer links:`,
+          ...peerAudit.entries.map(
+            (e) =>
+              `- ${path.basename(path.dirname(e.packageDir))}/${path.basename(e.packageDir)}: ${e.issue}`,
+          ),
+          `Repair with ${formatCliCommand("openclaw doctor --fix")} to recreate the peer symlinks.`,
+        ].join("\n"),
+        "Plugin peer links",
+      );
+    }
+  }
+
   const staleManagedNpmBundledPluginIds = listStaleManagedNpmBundledPlugins(params).map(
     (plugin) => plugin.pluginId,
   );
