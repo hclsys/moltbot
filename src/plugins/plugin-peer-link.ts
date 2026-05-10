@@ -12,6 +12,19 @@ type RelinkManagedNpmRootResult = {
   attempted: number;
 };
 
+export type PeerLinkAuditEntry = {
+  packageDir: string;
+  issue: "missing" | "stale";
+  linkPath: string;
+  currentTarget?: string;
+  expectedTarget: string;
+};
+
+export type AuditOpenClawPeerLinkResult = {
+  hostRoot: string | null;
+  entries: PeerLinkAuditEntry[];
+};
+
 function readStringRecord(value: unknown): Record<string, string> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return {};
@@ -140,4 +153,65 @@ export async function relinkOpenClawPeerDependenciesInManagedNpmRoot(params: {
     attempted += 1;
   }
   return { checked, attempted };
+}
+
+export async function auditOpenClawPeerLinksInManagedNpmRoot(
+  npmRoot: string,
+): Promise<AuditOpenClawPeerLinkResult> {
+  const hostRoot = resolveOpenClawPackageRootSync({
+    argv1: process.argv[1],
+    moduleUrl: import.meta.url,
+    cwd: process.cwd(),
+  });
+  const entries: PeerLinkAuditEntry[] = [];
+
+  for (const packageDir of await listManagedNpmRootPackageDirs(npmRoot)) {
+    const peerDependencies = await readPackagePeerDependencies(packageDir);
+    if (!Object.hasOwn(peerDependencies, "openclaw")) {
+      continue;
+    }
+    const linkPath = path.join(packageDir, "node_modules", "openclaw");
+    if (!hostRoot) {
+      continue;
+    }
+    let currentTarget: string | undefined;
+    try {
+      currentTarget = await fs.readlink(linkPath);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "ENOENT") {
+        entries.push({ packageDir, issue: "missing", linkPath, expectedTarget: hostRoot });
+        continue;
+      }
+      if (code === "EINVAL") {
+        // Not a symlink — treat as stale (real directory in place of expected link).
+        try {
+          await fs.access(linkPath);
+          entries.push({
+            packageDir,
+            issue: "stale",
+            linkPath,
+            currentTarget: "<directory>",
+            expectedTarget: hostRoot,
+          });
+        } catch {
+          entries.push({ packageDir, issue: "missing", linkPath, expectedTarget: hostRoot });
+        }
+        continue;
+      }
+      continue;
+    }
+    const resolvedTarget = path.resolve(path.dirname(linkPath), currentTarget);
+    if (resolvedTarget !== path.resolve(hostRoot)) {
+      entries.push({
+        packageDir,
+        issue: "stale",
+        linkPath,
+        currentTarget,
+        expectedTarget: hostRoot,
+      });
+    }
+  }
+
+  return { hostRoot, entries };
 }
