@@ -2,8 +2,10 @@ import { resolveAgentWorkspaceDir, resolveDefaultAgentId } from "../agents/agent
 import { initSubagentRegistry } from "../agents/subagent-registry.js";
 import { applyPluginAutoEnable } from "../config/plugin-auto-enable.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { resolveDefaultPluginNpmDir } from "../plugins/install-paths.js";
 import { loadPluginLookUpTable } from "../plugins/plugin-lookup-table.js";
 import type { PluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot.js";
+import { relinkOpenClawPeerDependenciesInManagedNpmRoot } from "../plugins/plugin-peer-link.js";
 import { createEmptyPluginRegistry } from "../plugins/registry.js";
 import { getActivePluginRegistry, setActivePluginRegistry } from "../plugins/runtime.js";
 import { mergeActivationSectionsIntoRuntimeConfig } from "./plugin-activation-runtime-config.js";
@@ -157,6 +159,10 @@ export async function loadGatewayStartupPluginRuntime(params: {
   suppressPluginInfoLogs?: boolean;
   startupTrace?: GatewayStartupTrace;
 }) {
+  await relinkOpenClawPeerDependenciesInManagedNpmRoot({
+    npmRoot: resolveDefaultPluginNpmDir(process.env),
+    logger: { info: params.log.info, warn: params.log.warn },
+  });
   const { loadGatewayStartupPlugins } = await import("./server-plugin-bootstrap.js");
   return loadGatewayStartupPlugins({
     cfg: params.cfg,
