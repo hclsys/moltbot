@@ -113,7 +113,8 @@ export function resolveDiscordMentionState(params: {
     "reply_to_bot",
     Boolean(params.botId) &&
       Boolean(params.referencedAuthorId) &&
-      params.referencedAuthorId === params.botId,
+      params.referencedAuthorId === params.botId &&
+      !params.authorIsBot,
   );
 
   return {
