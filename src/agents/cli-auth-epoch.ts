@@ -179,21 +179,28 @@ export async function resolveCliAuthEpoch(params: {
   const authProfileId = normalizeOptionalString(params.authProfileId);
   const parts: string[] = [];
 
-  if (params.skipLocalCredential !== true) {
-    const localFingerprint = getLocalCliCredentialFingerprint(provider);
-    if (localFingerprint) {
-      parts.push(`local:${provider}:${localFingerprint}`);
-    }
-  }
-
+  // Resolve the auth-profile credential first so we can decide whether the
+  // local fingerprint should contribute to the epoch. When an auth-profile
+  // credential is present it is the canonical identity source; the local
+  // file fingerprint must not be included, because its presence/absence flips
+  // independently of the OAuth identity (e.g. ~/.claude/.credentials.json
+  // appearing on disk) and would invalidate every live session. (#80178)
+  let profileCredential: ReturnType<typeof getAuthProfileCredential>;
   if (authProfileId) {
     const store = cliAuthEpochDeps.loadAuthProfileStoreForRuntime(undefined, {
       readOnly: true,
       allowKeychainPrompt: false,
     });
-    const credential = getAuthProfileCredential(store, authProfileId);
-    if (credential) {
-      parts.push(encodeAuthProfileEpochPart(authProfileId, credential));
+    profileCredential = getAuthProfileCredential(store, authProfileId);
+    if (profileCredential) {
+      parts.push(encodeAuthProfileEpochPart(authProfileId, profileCredential));
+    }
+  }
+
+  if (params.skipLocalCredential !== true && !profileCredential) {
+    const localFingerprint = getLocalCliCredentialFingerprint(provider);
+    if (localFingerprint) {
+      parts.push(`local:${provider}:${localFingerprint}`);
     }
   }
 
