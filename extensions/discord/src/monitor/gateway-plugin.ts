@@ -9,6 +9,7 @@ import {
 } from "openclaw/plugin-sdk/proxy-capture";
 import { danger } from "openclaw/plugin-sdk/runtime-env";
 import type { RuntimeEnv } from "openclaw/plugin-sdk/runtime-env";
+import { ProxyAgent, fetch as undiciFetch } from "undici";
 import * as ws from "ws";
 import * as discordGateway from "../internal/gateway.js";
 import { createDiscordDnsLookup } from "../network-config.js";
@@ -50,6 +51,7 @@ type GatewayPluginTestingOptions = {
 };
 type CreateDiscordGatewayPluginTestingOptions = GatewayPluginTestingOptions & {
   HttpsProxyAgentCtor?: typeof httpsProxyAgent.HttpsProxyAgent;
+  ProxyAgentCtor?: typeof ProxyAgent;
 };
 type DiscordGatewayRegistrationState = {
   client?: DiscordGatewayClient;
@@ -244,6 +246,15 @@ function createDiscordGatewayMetadataFetch(debugCaptureEnabled: boolean): Discor
     );
 }
 
+function createProxyAwareGatewayMetadataFetch(
+  proxyUrl: string,
+  ProxyAgentCtor: typeof ProxyAgent,
+): DiscordGatewayFetch {
+  const dispatcher = new ProxyAgentCtor({ uri: proxyUrl, allowH2: false });
+  return (input, init) =>
+    undiciFetch(input, { ...(init as Record<string, unknown>), dispatcher }) as Promise<Response>;
+}
+
 export function waitForDiscordGatewayPluginRegistration(
   plugin: unknown,
 ): Promise<void> | undefined {
@@ -279,6 +290,8 @@ export function createDiscordGatewayPlugin(params: {
       const HttpsProxyAgentCtor =
         params.__testing?.HttpsProxyAgentCtor ?? httpsProxyAgent.HttpsProxyAgent;
       wsAgent = new HttpsProxyAgentCtor<string>(proxy);
+      const ProxyAgentCtor = params.__testing?.ProxyAgentCtor ?? ProxyAgent;
+      fetchImpl = createProxyAwareGatewayMetadataFetch(proxy, ProxyAgentCtor);
       params.runtime.log?.("discord: gateway proxy enabled");
     } catch (err) {
       params.runtime.error?.(danger(`discord: invalid gateway proxy: ${String(err)}`));
