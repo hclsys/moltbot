@@ -136,6 +136,10 @@ async function resolveStatusHarnessId(params: {
   sessionKey: string;
   sessionEntry?: SessionEntry;
 }): Promise<string | undefined> {
+  const pinnedId = normalizeOptionalLowercaseString(params.sessionEntry?.agentHarnessId);
+  if (pinnedId && pinnedId !== "pi") {
+    return pinnedId;
+  }
   try {
     const { selectAgentHarness } = await loadAgentHarnessSelectionRuntime();
     const selected = selectAgentHarness({
