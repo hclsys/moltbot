@@ -454,6 +454,61 @@ describe("RealtimeCallHandler path routing", () => {
     }
   });
 
+  it("suppresses OpenAI server-VAD auto-response when an outbound initial greeting is queued", async () => {
+    let bridgeRequest: Parameters<RealtimeVoiceProviderPlugin["createBridge"]>[0] | undefined;
+    const createBridge = vi.fn(
+      (request: Parameters<RealtimeVoiceProviderPlugin["createBridge"]>[0]) => {
+        bridgeRequest = request;
+        return makeBridge();
+      },
+    );
+    const getCallByProviderCallId = vi.fn(
+      (): CallRecord => ({
+        callId: "call-1",
+        providerCallId: "CA-greeting",
+        provider: "twilio",
+        direction: "outbound",
+        state: "ringing",
+        from: "+15550001234",
+        to: "+15550009999",
+        startedAt: Date.now(),
+        transcript: [],
+        processedEventIds: [],
+        metadata: { initialMessage: "Hi from Milly." },
+      }),
+    );
+    const handler = makeHandler(undefined, {
+      manager: {
+        getCallByProviderCallId,
+      },
+      realtimeProvider: makeRealtimeProvider(createBridge),
+    });
+    const server = await startRealtimeServer(handler);
+
+    try {
+      const ws = await connectWs(server.url);
+      try {
+        ws.send(
+          JSON.stringify({
+            event: "start",
+            start: { streamSid: "MZ-greeting", callSid: "CA-greeting" },
+          }),
+        );
+        await waitForRealtimeTest(() => {
+          expect(createBridge).toHaveBeenCalled();
+        });
+
+        expect(bridgeRequest?.suppressInitialAutoResponse).toBe(true);
+      } finally {
+        if (ws.readyState !== WebSocket.CLOSED && ws.readyState !== WebSocket.CLOSING) {
+          ws.close();
+        }
+      }
+    } finally {
+      await server.close();
+    }
+  });
+
   it("speaks through the active outbound realtime bridge by call id", async () => {
     const triggerGreeting = vi.fn();
     const createBridge = vi.fn(() => makeBridge({ triggerGreeting }));

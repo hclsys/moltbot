@@ -864,6 +864,62 @@ describe("buildOpenAIRealtimeVoiceProvider", () => {
     );
   });
 
+  it("restores automatic audio responses after the explicit initial greeting finishes", async () => {
+    const provider = buildOpenAIRealtimeVoiceProvider();
+    const bridge = provider.createBridge({
+      providerConfig: { apiKey: "sk-test" }, // pragma: allowlist secret
+      suppressInitialAutoResponse: true,
+      onAudio: vi.fn(),
+      onClearAudio: vi.fn(),
+    });
+    const connecting = bridge.connect();
+    const socket = FakeWebSocket.instances[0];
+    if (!socket) {
+      throw new Error("expected bridge to create a websocket");
+    }
+
+    socket.readyState = FakeWebSocket.OPEN;
+    socket.emit("open");
+    socket.emit("message", Buffer.from(JSON.stringify({ type: "session.updated" })));
+    await connecting;
+
+    expectRecordFields(
+      requireNestedRecord(requireSession(socket), ["audio", "input", "turn_detection"]),
+      "initial turn detection",
+      {
+        create_response: false,
+        interrupt_response: false,
+      },
+    );
+
+    bridge.triggerGreeting?.("Say exactly: hello.");
+    expect(parseSent(socket).map((event) => event.type)).toEqual([
+      "session.update",
+      "conversation.item.create",
+      "response.create",
+    ]);
+
+    socket.emit(
+      "message",
+      Buffer.from(JSON.stringify({ type: "response.done", response: { status: "completed" } })),
+    );
+
+    expect(parseSent(socket).map((event) => event.type)).toEqual([
+      "session.update",
+      "conversation.item.create",
+      "response.create",
+      "session.update",
+    ]);
+    expectRecordFields(
+      requireNestedRecord(requireSession(socket, 3), ["audio", "input", "turn_detection"]),
+      "restored turn detection",
+      {
+        create_response: true,
+        interrupt_response: true,
+      },
+    );
+  });
+
   it("can disable realtime response interruption while keeping audio responses enabled", async () => {
     const provider = buildOpenAIRealtimeVoiceProvider();
     const bridge = provider.createBridge({

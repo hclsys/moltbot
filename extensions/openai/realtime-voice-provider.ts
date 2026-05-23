@@ -60,6 +60,7 @@ type OpenAIRealtimeVoiceProviderConfig = {
   vadThreshold?: number;
   silenceDurationMs?: number;
   prefixPaddingMs?: number;
+  suppressInitialAutoResponse?: boolean;
   interruptResponseOnInputAudio?: boolean;
   minBargeInAudioEndMs?: number;
   reasoningEffort?: string;
@@ -370,6 +371,8 @@ class OpenAIRealtimeVoiceBridge implements RealtimeVoiceBridge {
   private deliveredToolCallKeys = new Set<string>();
   private readonly flowId = randomUUID();
   private sessionReadyFired = false;
+  private initialAutoResponseSuppressed = false;
+  private initialAutoResponseRestored = false;
   private readonly audioFormat: RealtimeVoiceAudioFormat;
 
   constructor(private readonly config: OpenAIRealtimeVoiceBridgeConfig) {
@@ -760,7 +763,7 @@ class OpenAIRealtimeVoiceBridge implements RealtimeVoiceBridge {
 
   private buildGaSessionUpdate(): RealtimeGaSessionUpdate {
     const cfg = this.config;
-    const autoRespondToAudio = cfg.autoRespondToAudio ?? true;
+    const autoRespondToAudio = this.resolveSessionAutoRespondToAudio();
     const interruptResponseOnInputAudio = cfg.interruptResponseOnInputAudio ?? autoRespondToAudio;
     return {
       type: "session.update",
@@ -806,6 +809,7 @@ class OpenAIRealtimeVoiceBridge implements RealtimeVoiceBridge {
   private buildAzureDeploymentSessionUpdate(): RealtimeAzureDeploymentSessionUpdate {
     const cfg = this.config;
     const format = this.resolveLegacyRealtimeAudioFormat();
+    const autoRespondToAudio = this.resolveSessionAutoRespondToAudio();
     return {
       type: "session.update",
       session: {
@@ -820,7 +824,7 @@ class OpenAIRealtimeVoiceBridge implements RealtimeVoiceBridge {
           threshold: cfg.vadThreshold ?? 0.5,
           prefix_padding_ms: cfg.prefixPaddingMs ?? 300,
           silence_duration_ms: cfg.silenceDurationMs ?? 500,
-          create_response: cfg.autoRespondToAudio ?? true,
+          create_response: autoRespondToAudio,
         },
         temperature: cfg.temperature ?? 0.8,
         ...(cfg.tools && cfg.tools.length > 0
@@ -933,6 +937,7 @@ class OpenAIRealtimeVoiceBridge implements RealtimeVoiceBridge {
         this.responseActive = false;
         this.responseCreateInFlight = false;
         this.responseCancelInFlight = false;
+        this.restoreInitialAutoResponse();
         this.flushPendingResponseCreate();
         return;
 
@@ -1117,6 +1122,31 @@ class OpenAIRealtimeVoiceBridge implements RealtimeVoiceBridge {
     this.lastAssistantItemId = null;
     this.toolCallBuffers.clear();
     this.deliveredToolCallKeys.clear();
+    this.initialAutoResponseSuppressed = false;
+    this.initialAutoResponseRestored = false;
+  }
+
+  private resolveSessionAutoRespondToAudio(): boolean {
+    const autoRespondToAudio = this.config.autoRespondToAudio ?? true;
+    if (
+      autoRespondToAudio &&
+      this.config.suppressInitialAutoResponse === true &&
+      !this.sessionReadyFired &&
+      !this.initialAutoResponseRestored
+    ) {
+      this.initialAutoResponseSuppressed = true;
+      return false;
+    }
+    return autoRespondToAudio;
+  }
+
+  private restoreInitialAutoResponse(): void {
+    if (!this.initialAutoResponseSuppressed || this.initialAutoResponseRestored) {
+      return;
+    }
+    this.initialAutoResponseSuppressed = false;
+    this.initialAutoResponseRestored = true;
+    this.sendSessionUpdate();
   }
 
   private sendMark(): void {

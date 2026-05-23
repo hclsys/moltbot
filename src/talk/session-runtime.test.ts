@@ -226,6 +226,28 @@ describe("realtime voice bridge session runtime", () => {
     expect(onToolCall).toHaveBeenCalledWith(event, session);
   });
 
+  it("forwards initial auto-response suppression to the provider bridge", () => {
+    let request: Parameters<RealtimeVoiceProviderPlugin["createBridge"]>[0] | undefined;
+    const provider: RealtimeVoiceProviderPlugin = {
+      id: "test",
+      label: "Test",
+      isConfigured: () => true,
+      createBridge: (nextRequest) => {
+        request = nextRequest;
+        return makeBridge();
+      },
+    };
+
+    createRealtimeVoiceBridgeSession({
+      provider,
+      providerConfig: {},
+      audioSink: { sendAudio: vi.fn() },
+      suppressInitialAutoResponse: true,
+    });
+
+    expect(expectBridgeRequest(request).suppressInitialAutoResponse).toBe(true);
+  });
+
   it("forwards tool result continuation options to the provider bridge", () => {
     const bridge = makeBridge();
     const provider: RealtimeVoiceProviderPlugin = {
